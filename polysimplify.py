@@ -44,7 +44,6 @@ def triangle_area(p1,p2,p3):
     """
     return abs(p1[0]*(p2[1]-p3[1])+p2[0]*(p3[1]-p1[1])+p3[0]*(p1[1]-p2[1]))/2.
 
-
 class VWSimplifier(object):
 
     def __init__(self,pts):
@@ -59,17 +58,16 @@ class VWSimplifier(object):
      
         pts = self.pts
         nmax = len(pts)
-        real_areas = np.array([triangle_area(pts[n-1],pts[n],pts[n+1]) if n not in [0,nmax-1] else np.inf for n in range(nmax)])
-        real_indicies = np.arange(nmax)
+        real_areas = array([triangle_area(pts[n-1],pts[n],pts[n+1]) if n not in [0,nmax-1] else np.inf for n in range(nmax)])
+        real_indices = range(nmax)
         mask = np.ones(shape=(nmax),dtype=np.bool)
         min_vert = argmin(real_areas)
-        this_area = real_areas[min_vert]
-        real_idx = min_vert
+        areas = real_areas[:]
+        this_area = areas[min_vert]
+        areas = np.delete(areas,min_vert)
+        i = real_indices[:]
+        real_idx = i.pop(min_vert)
         while this_area<np.inf:
-           #remove index by adding to mask
-           mask[real_idx] = False
-           #work with only the active vertices
-           i = real_indicies[mask]
            
            #now that min_vert was filtered out, min_vert points 
            # to the point after the deleted point.
@@ -88,7 +86,7 @@ class VWSimplifier(object):
                  skip = True
                  #min_vert doesn't change because areas were masked
              real_areas[right_idx] = right_area
-
+             areas[min_vert] = right_area
            if min_vert > 1:
              #cant try/except because 0-1=-1 is a valid index
              left_area = triangle_area(pts[i[min_vert-2]],
@@ -103,13 +101,14 @@ class VWSimplifier(object):
                  skip = True
                  min_vert = min_vert-1
              real_areas[left_idx] = left_area
-
+             areas[min_vert-1] = left_area
 
            if not skip:
-             min_vert = argmin(real_areas[mask])
+             min_vert = argmin(areas)
              #print min_vert
-           real_idx = i[min_vert]
-           this_area = real_areas[real_idx]
+           real_idx = i.pop(min_vert)
+           this_area = areas[min_vert]
+           areas = np.delete(areas,min_vert)
            #if real_areas[0]<np.inf or real_areas[-1]<np.inf:
            #  print "NO!", real_areas[0], real_areas[-1]
         
@@ -140,7 +139,7 @@ if __name__ == "__main__":
    n = 20000
    thetas = np.linspace(0,16*np.pi,n)
    xt,yt = fancy_parametric(1.4)  
-   pts = np.array([[xt(t),yt(t)] for t in thetas])
+   pts = np.array([[xt(-t),yt(-t)] for t in thetas])
    start = time()
    simplifier = VWSimplifier(pts)
    pts = simplifier.from_number(1000)
