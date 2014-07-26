@@ -26,7 +26,7 @@ method seems to be faster than Ramer-Douglas-Peucker.
     VWpts = simplifier.from_number(n/100)
     end = time() 
     print "Visvalingam: reduced to %s points in %03f seconds" %(len(VWpts),end-start)
-    #50 points in .346 ms on my computer
+    #50 points in .131 seconds on my computer
 
 
     from rdp import rdp
