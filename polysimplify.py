@@ -68,6 +68,11 @@ class VWSimplifier(object):
         self.pts = np.array(pts)
         self.thresholds = self.build_thresholds()
 
+        #apply precision decimation
+        if precision:
+          self.pts = np.round(self.pts,precision)
+        #better do this now rather than on every mask operation
+        self.pts_str = self.pts.astype(np.str)
 
     def build_thresholds(self):
         '''compute the area value of each vertex, which one would
@@ -158,12 +163,10 @@ class VWSimplifier(object):
         return real_areas
 
     def from_threshold(self,threshold):
-        precision = self.precision
-        result = self.pts[self.thresholds > threshold]
-        if not precision:
-          return result
-        else:
-          return np.round(result,precision)
+        return self.pts[self.thresholds > threshold]
+
+    def strings_from_threshold(self,threshold):
+        return self.pts_str[self.thresholds > threshold]
 
     def from_number(self,n):
         thresholds = sorted(self.thresholds,reverse=True)
@@ -225,7 +228,7 @@ else:
       
       def pt2str(self,pt):
            '''make length 2 numpy.array.__str__() fit for wkt'''
-           return str(pt)[1:-1].strip().replace("  "," ")
+           return ' '.join(pt)
 
       def linebuild(self):
           self.simplifiers = [VWSimplifier(self.pts,
@@ -235,7 +238,7 @@ else:
           return u'LINESTRING (%s)'%','.join([pt2str(pt) for pt in pts])
 
       def linemask(self,threshold):
-          pts = self.simplifiers[0].from_threshold(threshold)
+          pts = self.simplifiers[0].strings_from_threshold(threshold)
           return OGRGeometry(self.line2wkt(pts))
 
       def polybuild(self):
@@ -255,7 +258,7 @@ else:
 
       def polymask(self,threshold):
           sims = self.simplifiers
-          get_pts = VWSimplifier.from_threshold
+          get_pts = VWSimplifier.strings_from_threshold
           list_of_pts = [get_pts(sim,threshold) for sim in sims]
           return OGRGeometry(self.poly2wkt(list_of_pts))
 
@@ -281,7 +284,7 @@ else:
           return u'MULTIPOLYGON (%s)'%','.join(outerstrs)
 
       def multimask(self,threshold):
-          get_pts = VWSimplifier.from_threshold
+          get_pts = VWSimplifier.strings_from_threshold
           loflofsims = self.simplifiers
           result = []
           for list_of_simplifiers in loflofsims:
