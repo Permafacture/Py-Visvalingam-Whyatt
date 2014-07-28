@@ -2,7 +2,8 @@ Visvalingam-Whyatt polyline simplification
 =====================
 
 Efficient Pure Python implementation of Visvalingam and Whyatt's 
-algorithm for reducing the complexity of poly-lines.
+algorithm for reducing the complexity of poly-lines.  Also 
+includes precision decimation to reduce file sizes if desired. 
 
 Works with GDAL OGRGeometry LINESTRING, POLYGON and MULTIPOLYGON
 objects as well as lists of vertices.
