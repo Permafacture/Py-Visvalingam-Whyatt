@@ -1,8 +1,11 @@
 Visvalingam-Whyatt polyline simplification
 =====================
 
-Pure Python implementation of Visvalingam and Whyatt's 
+Efficient Pure Python implementation of Visvalingam and Whyatt's 
 algorithm for reducing the complexity of poly-lines.
+
+Works with GDAL OGRGeometry LINESTRING, POLYGON and MULTIPOLYGON
+objects as well as lists of vertices.
 
 This method ranks the verticies by their importance to the 
 shape (how much removing the affects the area) in a 

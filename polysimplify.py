@@ -56,19 +56,18 @@ def remove(s,i):
 
     ~3.5x faster than numpy.delete
     '''
-    #print i,i+1,len(s)
-    #if np.inf in s[i:-1]:
-    # print "  oops"
     s[i:-1]=s[i+1:]
 
 class VWSimplifier(object):
 
-    def __init__(self,pts):
+    def __init__(self,pts,precision=None):
         '''Initialize with points. takes some time to build 
         the thresholds but then all threshold filtering later 
         is ultra fast'''
+        self.precision = precision
         self.pts = np.array(pts)
         self.thresholds = self.build_thresholds()
+
 
     def build_thresholds(self):
         '''compute the area value of each vertex, which one would
@@ -145,10 +144,7 @@ class VWSimplifier(object):
 
            #only argmin if we have too.
            min_vert = skip or argmin(areas)
-           try:
-             real_idx = i.pop(min_vert)
-           except IndexError:
-             print areas
+           real_idx = i.pop(min_vert)
            this_area = areas[min_vert]
            #areas = np.delete(areas,min_vert) #slower
            remove(areas,min_vert)  #faster
@@ -162,7 +158,12 @@ class VWSimplifier(object):
         return real_areas
 
     def from_threshold(self,threshold):
-        return self.pts[self.thresholds > threshold]
+        precision = self.precision
+        result = self.pts[self.thresholds > threshold]
+        if not precision:
+          return result
+        else:
+          return np.round(result,precision)
 
     def from_number(self,n):
         thresholds = sorted(self.thresholds,reverse=True)
@@ -171,7 +172,135 @@ class VWSimplifier(object):
         except IndexError:
           return self.pts
         return self.from_threshold(threshold)
-         
+
+class GDALSimplifier(object):
+    '''Dummy object that would be replaced by a real one if
+       correct module exists'''
+    def __init__(*args,**kwargs):
+        print """
+              django.contrib.gis.gdal not found.
+              GDALSimplifier not available.
+              """
+
+try:
+    from django.contrib.gis.gdal import OGRGeometry,OGRException
+except ImportError:         
+    pass
+else:
+    class GDALSimplifier(object):
+      '''Warning, there is a slight loss of precision just in the
+      conversion from OGRGeometry to numpy.array even if no
+      threshold is applied.  ie:
+      
+      originalpolygeom.area   ->   413962.65495176613
+      gdalsimplifierpoly.area ->   413962.65495339036
+      '''
+      def __init__(self,geom,precision=None):
+          '''accepts a gdal.OGRGeometry object and wraps multiple
+          VWSimplifiers.'''
+          name = geom.geom_name
+          self.geom_name = name
+          self.pts = np.array(geom.tuple)
+          self.precision = precision
+          if name == 'LINESTRING':
+            self.maskfunc = self.linemask
+            self.buildfunc = self.linebuild
+            self.fromnumfunc = self.notimplemented
+          elif name == "POLYGON":
+            self.maskfunc = self.polymask
+            self.buildfunc = self.polybuild
+            self.fromnumfunc = self.notimplemented
+          elif name == "MULTIPOLYGON":
+            self.maskfunc = self.multimask
+            self.buildfunc = self.multibuild
+            self.fromnumfunc = self.notimplemented
+          else:
+            raise OGRGeometryError("""
+             Only types LINESTRING, POLYGON and MULTIPOLYGON
+             supported, but got %s"""%name)
+          #sets self.simplifiers to a list of VWSimplifiers
+          self.buildfunc()
+
+      #rather than concise, I'd rather be explicit and clear.
+      
+      def pt2str(self,pt):
+           '''make length 2 numpy.array.__str__() fit for wkt'''
+           return str(pt)[1:-1].strip().replace("  "," ")
+
+      def linebuild(self):
+          self.simplifiers = [VWSimplifier(self.pts,
+                                           self.precision)]
+      def line2wkt(self,pts):
+          pt2str = self.pt2str
+          return u'LINESTRING (%s)'%','.join([pt2str(pt) for pt in pts])
+
+      def linemask(self,threshold):
+          pts = self.simplifiers[0].from_threshold(threshold)
+          return OGRGeometry(self.line2wkt(pts))
+
+      def polybuild(self):
+          list_of_pts = self.pts
+          precision=self.precision
+          result = []
+          for pts in list_of_pts:
+            result.append(VWSimplifier(pts,precision))
+          self.simplifiers = result
+
+      def poly2wkt(self,list_of_pts):
+          p2s = self.pt2str
+          strs = [] #strings of each linestring 
+          for pts in list_of_pts:
+           strs.append('(%s)'%','.join([p2s(pt) for pt in pts]))
+          return u'POLYGON (%s)'%','.join(strs)
+
+      def polymask(self,threshold):
+          sims = self.simplifiers
+          get_pts = VWSimplifier.from_threshold
+          list_of_pts = [get_pts(sim,threshold) for sim in sims]
+          return OGRGeometry(self.poly2wkt(list_of_pts))
+
+      def multibuild(self):
+          list_of_list_of_pts = self.pts
+          precision = self.precision
+          result = []
+          for list_of_pts in list_of_list_of_pts:
+            subresult = []
+            for pts in list_of_pts:
+              subresult.append(VWSimplifier(pts,precision))          
+            result.append(subresult)
+          self.simplifiers = result
+
+      def multi2wkt(self,list_of_list_of_pts):
+          p2s = self.pt2str
+          outerstrs = []
+          for list_of_pts in list_of_list_of_pts:
+            innerstrs = []
+            for pts in list_of_pts:
+              innerstrs.append('(%s)'%','.join([p2s(pt) for pt in pts]))
+            outerstrs.append('(%s)'%','.join(innerstrs))
+          return u'MULTIPOLYGON (%s)'%','.join(outerstrs)
+
+      def multimask(self,threshold):
+          get_pts = VWSimplifier.from_threshold
+          loflofsims = self.simplifiers
+          result = []
+          for list_of_simplifiers in loflofsims:
+            subresult = []
+            for simplifier in list_of_simplifiers:
+              subresult.append(get_pts(simplifier,threshold))
+            result.append(subresult)
+          return OGRGeometry(self.multi2wkt(result))
+
+      def notimplemented(self,n):
+          print "This function is not yet implemented"
+
+      def from_threshold(self,threshold):
+          return self.maskfunc(threshold)
+
+      def from_number(self,n):
+          '''not implemented'''
+          return self.fromnumfunc(n)
+
 def fancy_parametric(k):
     ''' good k's: .33,.5,.65,.7,1.3,1.4,1.9,3,4,5'''
     cos = np.cos
@@ -183,7 +312,7 @@ def fancy_parametric(k):
 if __name__ == "__main__":
 
    from time import time
-   n = 20000
+   n = 5000
    thetas = np.linspace(0,16*np.pi,n)
    xt,yt = fancy_parametric(1.4)  
    pts = np.array([[xt(t),yt(t)] for t in thetas])
