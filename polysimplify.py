@@ -60,19 +60,13 @@ def remove(s,i):
 
 class VWSimplifier(object):
 
-    def __init__(self,pts,precision=None):
+    def __init__(self,pts):
         '''Initialize with points. takes some time to build 
         the thresholds but then all threshold filtering later 
         is ultra fast'''
-        self.precision = precision
         self.pts = np.array(pts)
         self.thresholds = self.build_thresholds()
-
-        #apply precision decimation
-        if precision:
-          self.pts = np.round(self.pts,precision)
-        #better do this now rather than on every mask operation
-        self.pts_str = self.pts.astype(np.str)
+        self.ordered_thresholds = sorted(self.thresholds,reverse=True)
 
     def build_thresholds(self):
         '''compute the area value of each vertex, which one would
@@ -165,16 +159,50 @@ class VWSimplifier(object):
     def from_threshold(self,threshold):
         return self.pts[self.thresholds > threshold]
 
-    def strings_from_threshold(self,threshold):
-        return self.pts_str[self.thresholds > threshold]
-
     def from_number(self,n):
-        thresholds = sorted(self.thresholds,reverse=True)
+        thresholds = self.ordered_thresholds
         try:
           threshold = thresholds[int(n)]
         except IndexError:
           return self.pts
-        return self.from_threshold(threshold)
+        return self.pts[self.thresholds > threshold]
+
+    def from_ratio(self,r):
+        if r<=0 or r>1:
+          raise ValueError("Ratio must be 0<r<=1")
+        else:
+          return self.from_number(r*len(self.thresholds))
+
+class WKTSimplifier(VWSimplifier):
+      '''VWSimplifier that returns strings suitable for WKT
+      creation'''
+
+      '''slow
+      def from_threshold(self,threshold,precision=None):
+          arr = np.array2string(self.pts[self.thresholds > threshold],precision=precision)
+          return arr.replace('[[ ','(').replace(']]',')').replace(']\n [ ',',')
+      '''
+      def from_threshold(self,threshold,precision=None):
+          if precision:
+            tmp = self.pts.astype('S%s'%precision)
+          else:
+            tmp = self.pts.astype(str)
+          return '(%s)'%','.join(['%s %s'%(x,y) for x,y in tmp])
+
+      def from_number(self,n,precision=None):
+        thresholds = self.ordered_thresholds
+        try:
+          threshold = thresholds[int(n)]
+        except IndexError:
+          threshold = 0
+        return self.from_threshold(threshold,precision=precision)
+
+      def from_ratio(self,r):
+        if r<=0 or r>1:
+          raise ValueError("Ratio must be 0<r<=1")
+        else:
+          return self.from_number(r*len(self.thresholds))
+
 
 
 try:
@@ -234,73 +262,61 @@ else:
            return ' '.join(pt)
 
       def linebuild(self):
-          self.simplifiers = [VWSimplifier(self.pts,
-                                           self.precision)]
+          self.simplifiers = [WKTSimplifier(self.pts)]
+
       def line2wkt(self,pts):
-          pt2str = self.pt2str
-          return u'LINESTRING (%s)'%','.join([pt2str(pt) for pt in pts])
+          return u'LINESTRING %s'%pts
 
       def linemask(self,threshold):
+          get_pts = self.get_pts
+          pts = get_pts(self.simplifiers[0],threshold)
           if self.return_OGR:
-            pts = self.simplifiers[0].strings_from_threshold(threshold)
             return OGRGeometry(self.line2wkt(pts),srs=self.geom_srs)
           else:
-            return self.simplifiers[0].from_threshold(threshold)
+            return pts
 
       def polybuild(self):
           list_of_pts = self.pts
-          precision=self.precision
           result = []
           for pts in list_of_pts:
-            result.append(VWSimplifier(pts,precision))
+            result.append(WKTSimplifier(pts))
           self.simplifiers = result
 
       def poly2wkt(self,list_of_pts):
-          p2s = self.pt2str
-          strs = [] #strings of each linestring 
-          for pts in list_of_pts:
-           strs.append('(%s)'%','.join([p2s(pt) for pt in pts]))
-          return u'POLYGON (%s)'%','.join(strs)
+          return u'POLYGON (%s)'%','.join(list_of_pts)
 
       def polymask(self,threshold):
+          get_pts = self.get_pts
           sims = self.simplifiers
+          list_of_pts = [get_pts(sim,threshold) for sim in sims]
           if self.return_OGR:
-            get_pts = VWSimplifier.strings_from_threshold
-            list_of_pts = [get_pts(sim,threshold) for sim in sims]
             return OGRGeometry(self.poly2wkt(list_of_pts),srs=self.geom_srs)
           else:
-            get_pts = VWSimplifier.from_threshold
             return [get_pts(sim,threshold) for sim in sims]
 
       def multibuild(self):
           list_of_list_of_pts = self.pts
-          precision = self.precision
           result = []
           for list_of_pts in list_of_list_of_pts:
             subresult = []
             for pts in list_of_pts:
-              subresult.append(VWSimplifier(pts,precision))          
+              subresult.append(WKTSimplifier(pts))          
             result.append(subresult)
           self.simplifiers = result
 
       def multi2wkt(self,list_of_list_of_pts):
-          p2s = self.pt2str
-          outerstrs = []
+          outerlist = []
           for list_of_pts in list_of_list_of_pts:
-            innerstrs = []
-            for pts in list_of_pts:
-              innerstrs.append('(%s)'%','.join([p2s(pt) for pt in pts]))
-            outerstrs.append('(%s)'%','.join(innerstrs))
-          return u'MULTIPOLYGON (%s)'%','.join(outerstrs)
+            outerlist.append('(%s)'%','.join(list_of_pts))
+          return u'MULTIPOLYGON (%s)'%','.join(outerlist)
 
       def multimask(self,threshold):
           loflofsims = self.simplifiers
           result = []
+          get_pts = self.get_pts
           if self.return_OGR:
-            get_pts = VWSimplifier.strings_from_threshold
             ret_func = lambda r: OGRGeometry(self.multi2wkt(r),srs=self.geom_srs)
           else:
-            get_pts = VWSimplifier.from_threshold
             ret_func = lambda r: r
           for list_of_simplifiers in loflofsims:
             subresult = []
@@ -313,11 +329,29 @@ else:
           print "This function is not yet implemented"
 
       def from_threshold(self,threshold):
+          precision = self.precision
+          if self.return_OGR:
+            self.get_pts = lambda obj,t: obj.from_threshold(t,precision)
+          else:
+            self.get_pts = lambda obj,t: super(WKTSimplifier,obj).from_threshold(t)
           return self.maskfunc(threshold)
 
       def from_number(self,n):
-          '''not implemented'''
-          return self.fromnumfunc(n)
+          precision = self.precision
+          if self.return_OGR:
+            self.get_pts = lambda obj,n: obj.from_number(n,precision)
+          else:
+            self.get_pts = lambda obj,n: super(WKTSimplifier,obj).from_number(n)
+          return self.maskfunc(n)
+
+      def from_ratio(self,r):
+          precision = self.precision
+          if self.return_OGR:
+            self.get_pts = lambda obj,n: obj.from_ratio(r,precision)
+          else:
+            self.get_pts = lambda obj,n: super(WKTSimplifier,obj).from_ratio(r)
+          return self.maskfunc(r)
+
 
 def fancy_parametric(k):
     ''' good k's: .33,.5,.65,.7,1.3,1.4,1.9,3,4,5'''
