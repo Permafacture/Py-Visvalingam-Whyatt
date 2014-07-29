@@ -176,19 +176,18 @@ class VWSimplifier(object):
           return self.pts
         return self.from_threshold(threshold)
 
-class GDALSimplifier(object):
-    '''Dummy object that would be replaced by a real one if
-       correct module exists'''
-    def __init__(*args,**kwargs):
-        print """
-              django.contrib.gis.gdal not found.
-              GDALSimplifier not available.
-              """
 
 try:
     from django.contrib.gis.gdal import OGRGeometry,OGRException
 except ImportError:         
-    pass
+    class GDALSimplifier(object):
+        '''Dummy object that would be replaced by a real one if
+           correct module exists'''
+        def __init__(*args,**kwargs):
+            print """
+                  django.contrib.gis.gdal not found.
+                  GDALSimplifier not available.
+                  """
 else:
     class GDALSimplifier(object):
       '''Warning, there is a slight loss of precision just in the
@@ -205,6 +204,7 @@ else:
           OGRGeometry objects.'''
           name = geom.geom_name
           self.geom_name = name
+          self.geom_srs = geom.srs
           self.pts = np.array(geom.tuple)
           self.precision = precision
           self.return_OGR = return_OGR
@@ -243,7 +243,7 @@ else:
       def linemask(self,threshold):
           if self.return_OGR:
             pts = self.simplifiers[0].strings_from_threshold(threshold)
-            return OGRGeometry(self.line2wkt(pts))
+            return OGRGeometry(self.line2wkt(pts),srs=self.geom_srs)
           else:
             return self.simplifiers[0].from_threshold(threshold)
 
@@ -267,7 +267,7 @@ else:
           if self.return_OGR:
             get_pts = VWSimplifier.strings_from_threshold
             list_of_pts = [get_pts(sim,threshold) for sim in sims]
-            return OGRGeometry(self.poly2wkt(list_of_pts))
+            return OGRGeometry(self.poly2wkt(list_of_pts),srs=self.geom_srs)
           else:
             get_pts = VWSimplifier.from_threshold
             return [get_pts(sim,threshold) for sim in sims]
@@ -298,7 +298,7 @@ else:
           result = []
           if self.return_OGR:
             get_pts = VWSimplifier.strings_from_threshold
-            ret_func = lambda r: OGRGeometry(self.multi2wkt(r))
+            ret_func = lambda r: OGRGeometry(self.multi2wkt(r),srs=self.geom_srs)
           else:
             get_pts = VWSimplifier.from_threshold
             ret_func = lambda r: r
