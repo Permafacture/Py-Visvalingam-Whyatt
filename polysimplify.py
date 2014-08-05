@@ -157,7 +157,7 @@ class VWSimplifier(object):
         return real_areas
 
     def from_threshold(self,threshold):
-        return self.pts[self.thresholds > threshold]
+        return self.pts[self.thresholds >= threshold]
 
     def from_number(self,n):
         thresholds = self.ordered_thresholds
@@ -176,37 +176,53 @@ class VWSimplifier(object):
 class WKTSimplifier(VWSimplifier):
       '''VWSimplifier that returns strings suitable for WKT
       creation'''
+      def __init__(self,*args,**kwargs):
+         if 'precision' in kwargs:
+           p=kwargs.pop('precision')
+         else:
+           p=None
+         VWSimplifier.__init__(self,*args,**kwargs)
+         self.set_precision(p)
+
+      def set_precision(self,precision):
+          if precision:
+            self.pts_as_strs = self.pts.astype('S%s'%precision)
+          else:
+            self.pts_as_strs = self.pts.astype(str)
+
 
       '''slow
       def from_threshold(self,threshold,precision=None):
           arr = np.array2string(self.pts[self.thresholds > threshold],precision=precision)
           return arr.replace('[[ ','(').replace(']]',')').replace(']\n [ ',',')
       '''
-      def from_threshold(self,threshold,precision=None):
+      def wkt_from_threshold(self,threshold, precision=None):
           if precision:
-            tmp = self.pts.astype('S%s'%precision)
-          else:
-            tmp = self.pts.astype(str)
-          return '(%s)'%','.join(['%s %s'%(x,y) for x,y in tmp])
+            self.set_precision(precision)
+          pts = self.pts_as_strs[self.thresholds >= threshold]
+          return '(%s)'%','.join(['%s %s'%(x,y) for x,y in pts])
 
-      def from_number(self,n,precision=None):
+      def wkt_from_number(self,n,precision=None):
         thresholds = self.ordered_thresholds
+        if n<3: n=3  #For polygons. TODO something better
         try:
           threshold = thresholds[int(n)]
         except IndexError:
           threshold = 0
-        return self.from_threshold(threshold,precision=precision)
+  
+        return self.wkt_from_threshold(threshold,precision=precision)
 
-      def from_ratio(self,r):
+      def wkt_from_ratio(self,r,precision=None):
         if r<=0 or r>1:
           raise ValueError("Ratio must be 0<r<=1")
         else:
-          return self.from_number(r*len(self.thresholds))
+          return self.wkt_from_number(r*len(self.thresholds))
 
 
 
 try:
     from django.contrib.gis.gdal import OGRGeometry,OGRException
+    from django.contrib.gis.geos import GEOSGeometry, fromstr
 except ImportError:         
     class GDALSimplifier(object):
         '''Dummy object that would be replaced by a real one if
@@ -225,17 +241,21 @@ else:
       originalpolygeom.area   ->   413962.65495176613
       gdalsimplifierpoly.area ->   413962.65495339036
       '''
-      def __init__(self,geom,precision=None,return_OGR = True):
-          '''accepts a gdal.OGRGeometry object and wraps multiple
-          VWSimplifiers.  set return_OGR to False for faster
+      def __init__(self,geom,precision=None,return_GDAL = True):
+          '''accepts a gdal.OGRGeometry or geos.GEOSGeometry
+          object and wraps multiple
+          VWSimplifiers.  set return_GDAL to False for faster
           filtering with arrays of floats returned instead of
-          OGRGeometry objects.'''
-          name = geom.geom_name
-          self.geom_name = name
-          self.geom_srs = geom.srs
+          geometry objects.'''
+          if isinstance(geom,OGRGeometry):
+            name = geom.geom_name
+            self.Geometry = lambda w: OGRGeometry(w,srs=geom.srs)
+          elif isinstance(geom,GEOSGeometry):
+            name = geom.geom_type.upper()
+            self.Geometry = lambda w: fromstr(w) 
           self.pts = np.array(geom.tuple)
           self.precision = precision
-          self.return_OGR = return_OGR
+          self.return_GDAL = return_GDAL
           if name == 'LINESTRING':
             self.maskfunc = self.linemask
             self.buildfunc = self.linebuild
@@ -270,8 +290,8 @@ else:
       def linemask(self,threshold):
           get_pts = self.get_pts
           pts = get_pts(self.simplifiers[0],threshold)
-          if self.return_OGR:
-            return OGRGeometry(self.line2wkt(pts),srs=self.geom_srs)
+          if self.return_GDAL:
+            return self.Geometry(self.line2wkt(pts))
           else:
             return pts
 
@@ -289,10 +309,10 @@ else:
           get_pts = self.get_pts
           sims = self.simplifiers
           list_of_pts = [get_pts(sim,threshold) for sim in sims]
-          if self.return_OGR:
-            return OGRGeometry(self.poly2wkt(list_of_pts),srs=self.geom_srs)
+          if self.return_GDAL:
+            return self.Geometry(self.poly2wkt(list_of_pts))
           else:
-            return [get_pts(sim,threshold) for sim in sims]
+            return array(list_of_pts)
 
       def multibuild(self):
           list_of_list_of_pts = self.pts
@@ -314,8 +334,8 @@ else:
           loflofsims = self.simplifiers
           result = []
           get_pts = self.get_pts
-          if self.return_OGR:
-            ret_func = lambda r: OGRGeometry(self.multi2wkt(r),srs=self.geom_srs)
+          if self.return_GDAL:
+            ret_func = lambda r: self.Geometry(self.multi2wkt(r))
           else:
             ret_func = lambda r: r
           for list_of_simplifiers in loflofsims:
@@ -330,26 +350,26 @@ else:
 
       def from_threshold(self,threshold):
           precision = self.precision
-          if self.return_OGR:
-            self.get_pts = lambda obj,t: obj.from_threshold(t,precision)
+          if self.return_GDAL:
+            self.get_pts = lambda obj,t: obj.wkt_from_threshold(t,precision)
           else:
-            self.get_pts = lambda obj,t: super(WKTSimplifier,obj).from_threshold(t)
+            self.get_pts = lambda obj,t: obj.from_threshold(t)
           return self.maskfunc(threshold)
 
       def from_number(self,n):
           precision = self.precision
-          if self.return_OGR:
-            self.get_pts = lambda obj,n: obj.from_number(n,precision)
+          if self.return_GDAL:
+            self.get_pts = lambda obj,t: obj.wkt_from_number(t,precision)
           else:
-            self.get_pts = lambda obj,n: super(WKTSimplifier,obj).from_number(n)
+            self.get_pts = lambda obj,t: obj.from_number(t)
           return self.maskfunc(n)
 
       def from_ratio(self,r):
           precision = self.precision
-          if self.return_OGR:
-            self.get_pts = lambda obj,n: obj.from_ratio(r,precision)
+          if self.return_GDAL:
+            self.get_pts = lambda obj,t: obj.wkt_from_ratio(t,precision)
           else:
-            self.get_pts = lambda obj,n: super(WKTSimplifier,obj).from_ratio(r)
+            self.get_pts = lambda obj,t: obj.from_ratio(t)
           return self.maskfunc(r)
 
 
