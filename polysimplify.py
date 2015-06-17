@@ -233,9 +233,12 @@ except ImportError:
                   GDALSimplifier not available.
                   """
 else:
+    from json import loads
+    import re
+    p = re.compile( '([ 0123456789.]+) ([0123456789.]+)')
     class GDALSimplifier(object):
       '''Warning, there is a slight loss of precision just in the
-      conversion from OGRGeometry to numpy.array even if no
+      conversion from geometry object to numpy.array even if no
       threshold is applied.  ie:
       
       originalpolygeom.area   ->   413962.65495176613
@@ -247,15 +250,28 @@ else:
           VWSimplifiers.  set return_GDAL to False for faster
           filtering with arrays of floats returned instead of
           geometry objects.'''
+          global p
+          self.return_GDAL = return_GDAL
           if isinstance(geom,OGRGeometry):
             name = geom.geom_name
             self.Geometry = lambda w: OGRGeometry(w,srs=geom.srs)
+            self.pts = np.array(geom.tuple)
           elif isinstance(geom,GEOSGeometry):
             name = geom.geom_type.upper()
             self.Geometry = lambda w: fromstr(w) 
-          self.pts = np.array(geom.tuple)
+            self.pts = np.array(geom.tuple)
+          elif isinstance(geom, unicode) or isinstance(geom,str): 
+            #assume wkt
+            #for WKT
+            def str2tuple(q):
+                return '(%s,%s)' % (q.group(1),q.group(2))
+
+            self.return_GDAL = False #don't even try
+            self.Geometry = lambda w: w #this will never be used
+            name, pts = geom.split(' ',1)
+            self.pts = loads(p.sub(str2tuple,pts).\
+                             replace('(','[').replace(')',']'))
           self.precision = precision
-          self.return_GDAL = return_GDAL
           if name == 'LINESTRING':
             self.maskfunc = self.linemask
             self.buildfunc = self.linebuild
