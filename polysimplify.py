@@ -44,6 +44,38 @@ def triangle_area(p1,p2,p3):
     """
     return abs(p1[0]*(p2[1]-p3[1])+p2[0]*(p3[1]-p1[1])+p3[0]*(p1[1]-p2[1]))/2.
 
+def triangle_areas_from_array(arr):
+    '''
+    take an (N,2) array of points and return an (N,1)
+    array of the areas of those triangles, where the first
+    and last areas are np.inf
+
+    see triangle_area for algorithm
+    '''
+
+    result = np.empty((len(arr),),arr.dtype)
+    result[0] = np.inf; result[-1] = np.inf
+
+    p1 = arr[:-2]
+    p2 = arr[1:-1]
+    p3 = arr[2:]
+    
+    #an accumulators to avoid unnecessary intermediate arrays
+    accr = result[1:-1] #Accumulate directly into result
+    acc1 = np.empty_like(accr)
+
+    np.subtract(p2[:,1], p3[:,1], out = accr)
+    np.multiply(p1[:,0], accr,    out = accr)
+    np.subtract(p3[:,1], p1[:,1], out = acc1  )
+    np.multiply(p2[:,0], acc1,    out = acc1  )
+    np.add(acc1, accr,            out = accr)
+    np.subtract(p1[:,1], p2[:,1], out = acc1  )
+    np.multiply(p3[:,0], acc1,    out = acc1  )
+    np.add(acc1, accr,            out = accr)
+    np.abs(accr, out = accr)
+    accr /= 2.
+    #Notice: accr was writing into result, so the answer is in there
+    return result
 
 #the final value in thresholds is np.inf, which will never be
 # the min value.  So, I am safe in "deleting" an index by
@@ -76,7 +108,7 @@ class VWSimplifier(object):
         '''
         pts = self.pts
         nmax = len(pts)
-        real_areas = array([triangle_area(pts[n-1],pts[n],pts[n+1]) if n not in [0,nmax-1] else np.inf for n in range(nmax)])
+        real_areas = triangle_areas_from_array(pts)
         real_indices = range(nmax)
 
 
