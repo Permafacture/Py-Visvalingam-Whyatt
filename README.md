@@ -39,3 +39,7 @@ method seems to be faster than Ramer-Douglas-Peucker.
     end = time()
     print "Ramer-Douglas-Peucker: to %s points in %023 seconds" %(len(RDPpts),end-start)
     #40 points in 1.35 seconds on my computer
+
+This implementation of Visvalingam-Whyatt line simplification has been included in
+the [cartagen](https://cartagen.readthedocs.io/en/latest/reference/cartagen.visvalingam_whyatt.html#cartagen.visvalingam_whyatt)
+python library and its [QGIS plugin](https://github.com/LostInZoom/cartagen-qgis)
