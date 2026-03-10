@@ -109,7 +109,7 @@ class VWSimplifier(object):
         pts = self.pts
         nmax = len(pts)
         real_areas = triangle_areas_from_array(pts)
-        real_indices = range(nmax)
+        real_indices = list(range(nmax))
 
 
         #destructable copies 
@@ -179,12 +179,12 @@ class VWSimplifier(object):
            this_area = areas[min_vert]
            #areas = np.delete(areas,min_vert) #slower
            remove(areas,min_vert)  #faster
-           '''if sum(np.where(areas==np.inf)[0]) != sum(list(reversed(range(len(areas))))[:cntr]):
-             print "broke:",np.where(areas==np.inf)[0],cntr
+           '''if sum(np.where(areas==np.inf)[0]) != sum(list(reversed(list(range(len(areas)))))[:cntr]):
+             print("broke:",np.where(areas==np.inf)[0],cntr)
              break
            cntr+=1
            #if real_areas[0]<np.inf or real_areas[-1]<np.inf:
-           #  print "NO!", real_areas[0], real_areas[-1]
+           #  print("NO!", real_areas[0], real_areas[-1])
            '''
         return real_areas
 
@@ -260,10 +260,7 @@ except ImportError:
         '''Dummy object that would be replaced by a real one if
            correct module exists'''
         def __init__(*args,**kwargs):
-            print """
-                  django.contrib.gis.gdal not found.
-                  GDALSimplifier not available.
-                  """
+            print("""django.contrib.gis.gdal not found. GDALSimplifier not available."""
 else:
     from json import loads
     import re
@@ -394,7 +391,7 @@ else:
           return ret_func(result)
 
       def notimplemented(self,n):
-          print "This function is not yet implemented"
+          print("This function is not yet implemented")
 
       def from_threshold(self,threshold):
           precision = self.precision
@@ -440,12 +437,12 @@ if __name__ == "__main__":
    simplifier = VWSimplifier(pts)
    pts = simplifier.from_number(1000)
    end = time()
-   print "%s vertices removed in %02f seconds"%(n-len(pts), end-start)
+   print("%s vertices removed in %02f seconds"%(n-len(pts), end-start))
    
    import matplotlib
    matplotlib.use('AGG')
    import matplotlib.pyplot as plot
    plot.plot(pts[:,0],pts[:,1],color='r')
    plot.savefig('visvalingam.png')
-   print "saved visvalingam.png"
+   print("saved visvalingam.png")
    #plot.show()
